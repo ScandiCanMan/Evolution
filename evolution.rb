@@ -47,6 +47,8 @@ class Blob
                 ######################################
 		@status = "alive" #All blobs start alive
 		@offspring = 0 #No blobs are born with offspring
+		@pregnant = false #Blobs don't start pregnant
+		@turnsPregnant = 0 #If a blob is pregnant, how many days has it been pregnant
 	end
 
 	#Returns the unique instance number of this blob
@@ -84,9 +86,34 @@ class Blob
 		return @maxAge
 	end
 
+	#Returns if the blob is pregnant
+	def pregnant
+		return @pregnant
+	end
+
+	#Returns how many turns the blob has been pregnant
+	def turnsPregnant
+		return @turnsPregnant
+	end
+
 	#Increase the blob's age by 1 tick
 	def increaseAge
 		@age = @age + 1
+	end
+
+	#Increase turns pregnant by 1
+	def increaseTurnsPregnant
+		@turnsPregnant = @turnsPregnant + 1
+	end
+
+	#Sets a female to pregnant
+	def mate
+		@pregnant = true
+	end
+
+	def noLongerPregnant
+		@pregnant = false
+		@turnsPregnant = 0
 	end
 
 	#Increase the blob's offspring counter by 1
@@ -274,6 +301,16 @@ class World
 		return coordinateResults
 	end
 
+	#Takes two coordinates (x1:y1 and x2:y2) and checks if they are touching
+	def isTouching(x1, y1, x2, y2)
+		if (x1 == x2 or x1 == x2 - 1 or x1 == x2 + 1) and (y1 == y2 or y1 == y2 - 1 or y1 == y2 + 1)
+			#puts "blobs are touching"
+			return true
+		else
+			return false
+		end
+	end
+
 	#Draw out an ASCII map showing the coordinates and blobs coloured by gender
 	def showMap(blobs)
 
@@ -351,11 +388,12 @@ end
 
 #Setting up variables
 lifeChance = 0	 		#Probability that a new creature spawns
-deathChance = 1			#Probability that a creature dies randomly
-reproductionChance = 10		#Chance a blob will reproduce
+deathChance = 0 #1			#Probability that a creature dies randomly
+pregnancyPeriod = 3		#How many days a female must be pregnant before giving birth
+reproductionChance = 0 #10		#Chance a blob will reproduce spontaneously
 maxOffspring = 2		#Maximum number of offspring a parent may have
 minimumReproductionAge = 1	#Minimum age a blob must be to reproduce
-sleep = 0.75			#Sleep between runs
+sleep = 1.75			#Sleep between runs
 blobs = Array.new		#Storage for our blob creatures
 i = 0				#How many iterations of the loop
 ageTrait = 0			#The trait given to a new blob
@@ -363,15 +401,15 @@ liveCount = 0			#How many are alive at the end of a loop
 deadCount = 0			#Hot many are dead at the end of a loop
 
 #Initialize world
-world = World.new(15,6)
+world = World.new(10,10)
 
 #Create our Adam and Eve blobs
-blobs.push(Blob.new({'instance' => 1, 'age' => 1, 'maxAge' => 10, 'gender' => 'male'}))
-blobs.push(Blob.new({'instance' => 2, 'age' => 1, 'maxAge' => 10, 'gender' => 'female'}))
+blobs.push(Blob.new({'instance' => 1, 'age' => 1, 'maxAge' => 15, 'gender' => 'male'}))
+blobs.push(Blob.new({'instance' => 2, 'age' => 1, 'maxAge' => 15, 'gender' => 'female'}))
 
 #Assign Adam and Eve blobs to cells
 world.moveBlob(1, 1, 1)
-world.moveBlob(2, 10, 5)
+world.moveBlob(2, 3, 3)
 
 #Start the simulation!
 loop do
@@ -399,6 +437,8 @@ loop do
 		blobX = blobLocation['x']
 		blobY = blobLocation['y']
 
+		decidedMate = {'instance' => 0}
+
 		#If the blob is alive, see if it dies
 		if blob.status == "alive"
 			#Does the blob die randomly?
@@ -421,54 +461,144 @@ loop do
 		if blob.status == "alive"
 			liveCount = liveCount + 1
 
-			#If the blob is able to reproduce, create a new blob
-			if rand(100) < reproductionChance
-				#Is the blob old enough to reproduce?
+			#If our blob is male, it will look for a mate
+			if blob.gender == "male"
 				if blob.age > minimumReproductionAge
-					#Has the blob had as many offspring as possible?
-					if blob.offspring < maxOffspring
-						#Determine if max age goes down by 1, stays the same, or up by 1
-						case rand(3)
-						when 0
-							ageTrait = blob.maxAge - 1
-						when 1
-							ageTrait = blob.maxAge
-						when 2
-							ageTrait = blob.maxAge + 1
-						end
+					cells = world.lookAround(blobX, blobY, 3)
+					eligibleFemales = Array.new
 
-						#Create a new blob with a new unique instance, determined maxAge, and parent instance
-						blobs.push(Blob.new({'instance' => blobs.count + 1, 'maxAge' => ageTrait, 'parent' => blob.instance}))
-
-						#Now time to place the baby blob into the world
-						babyPlaced = false
-						distance = 0
-
-						#Start in a 1 range grid around the parent and find a place to put the blob
-						#If we don't find an empty spot immediately around the parent, expand out
-						until babyPlaced do
-							distance = distance + 1
-
-							#Shuffle the returned coordinates so we don't always spawn the blob
-							#in the upper left first
-							cells = world.lookAround(blobX, blobY, distance).shuffle
-
-							cells.each do |cell|
-								if cell['instance'] == 0
-									world.moveBlob(blobs.count, cell['x'], cell['y'])
-									babyPlaced = true
-									break
+					cells.each do |cell|
+						if cell['instance'] > 0
+							#puts blob.instance.to_s + " found a blob"
+							blobs.each do |potentialMate|
+								if potentialMate.instance == cell['instance']
+									if potentialMate.gender == 'female'
+										#puts "Blob is female"
+										if potentialMate.offspring < maxOffspring
+											#puts "Blob " + cell['instance'].to_s + " is acceptable mate"
+											decidedMate = {'instance' => cell['instance'], 'x' => cell['x'], 'y' => cell['y']}
+										end
+									end
 								end
 							end
 						end
-
-						#Increase the parent's offspring counter
-						blob.newParent
-
-						news = news + "[*]Blob " + blob.instance.to_s + " had a baby! Total offspring: " + blob.offspring.to_s + "\n"
 					end
 				end
 			end
+
+			if decidedMate['instance'] > 0
+				#puts "Blob " + blob.instance.to_s + " decided that blob " + decidedMate['instance'].to_s + " is a good mate"
+				world.isTouching(blobX, blobY, decidedMate['x'], decidedMate['y'])
+
+				#If the male is touching the female, mate
+				if world.isTouching(blobX, blobY, decidedMate['x'], decidedMate['y'])
+					blobs.each do |findMate|
+						if findMate.instance == decidedMate['instance']
+							if findMate.pregnant == false
+								news = news + "Blob " + blob.instance.to_s + " mated with blob " + decidedMate['instance'].to_s + "\n"
+								findMate.mate
+							end
+						end
+					end
+				end
+			end
+
+			if blob.gender == 'female' and blob.pregnant == true
+				blob.increaseTurnsPregnant
+				#news = news + "Blob " + blob.instance.to_s + " is " + blob.turnsPregnant.to_s + " turns pregnant!\n"
+
+				if blob.turnsPregnant == pregnancyPeriod
+					#Determine if max age goes down by 1, stays the same, or up by 1
+                                        case rand(3)
+                                        when 0
+                                        	ageTrait = blob.maxAge - 1
+                                       	when 1
+                                        	ageTrait = blob.maxAge
+                                       	when 2
+                                                ageTrait = blob.maxAge + 1
+                                        end
+
+					#Create a new blob with a new unique instance, determined maxAge, and parent instance
+					blobs.push(Blob.new({'instance' => blobs.count + 1, 'maxAge' => ageTrait, 'parent' => blob.instance}))
+
+                                        #Now time to place the baby blob into the world
+                                        babyPlaced = false
+                                        distance = 0
+
+                                        #Start in a 1 range grid around the parent and find a place to put the blob
+                                        #If we don't find an empty spot immediately around the parent, expand out
+                                        until babyPlaced do
+                                        	distance = distance + 1
+
+                                                #Shuffle the returned coordinates so we don't always spawn the blob
+                                                #in the upper left first
+                                                cells = world.lookAround(blobX, blobY, distance).shuffle
+
+                                                cells.each do |cell|
+                                                	if cell['instance'] == 0
+                                                        	world.moveBlob(blobs.count, cell['x'], cell['y'])
+                                                                babyPlaced = true
+                                                                break
+                                                        end
+                                                end
+					end
+
+                                        #Increase the parent's offspring counter
+                                        blob.newParent
+					blob.noLongerPregnant
+
+                                        news = news + "[*]Blob " + blob.instance.to_s + " had a baby! Total offspring: " + blob.offspring.to_s + "\n"
+				end
+			end
+
+			#If the blob is able to reproduce, create a new blob
+#			if rand(100) < reproductionChance
+#				#Is the blob old enough to reproduce?
+#				if blob.age > minimumReproductionAge
+#					#Has the blob had as many offspring as possible?
+#					if blob.offspring < maxOffspring
+#						#Determine if max age goes down by 1, stays the same, or up by 1
+#						case rand(3)
+#						when 0
+#							ageTrait = blob.maxAge - 1
+#						when 1
+#							ageTrait = blob.maxAge
+#						when 2
+#							ageTrait = blob.maxAge + 1
+#						end
+#
+#						#Create a new blob with a new unique instance, determined maxAge, and parent instance
+#						blobs.push(Blob.new({'instance' => blobs.count + 1, 'maxAge' => ageTrait, 'parent' => blob.instance}))
+#
+#						#Now time to place the baby blob into the world
+#						babyPlaced = false
+#						distance = 0
+#
+#						#Start in a 1 range grid around the parent and find a place to put the blob
+#						#If we don't find an empty spot immediately around the parent, expand out
+#						until babyPlaced do
+#							distance = distance + 1
+#
+#							#Shuffle the returned coordinates so we don't always spawn the blob
+#							#in the upper left first
+#							cells = world.lookAround(blobX, blobY, distance).shuffle
+#
+#							cells.each do |cell|
+#								if cell['instance'] == 0
+#									world.moveBlob(blobs.count, cell['x'], cell['y'])
+#									babyPlaced = true
+#									break
+#								end
+#							end
+#						end
+#
+#						#Increase the parent's offspring counter
+#						blob.newParent
+#
+#						news = news + "[*]Blob " + blob.instance.to_s + " had a baby! Total offspring: " + blob.offspring.to_s + "\n"
+#					end
+#				end
+#			end
 
 			#If the blob can take a step somewhere, make them go
 			#First, grab the cells 1 cell around the blob and shuffle the array
